@@ -1,9 +1,9 @@
 # email-exporter
 
-Exports IMAP mailboxes to S3. Fetches messages in small batches and writes each
-one to its destination as a compressed object with a metadata sidecar,
-checkpointing after every batch. Append-only, resumable, and safe to interrupt
-at any moment.
+Exports IMAP mailboxes to S3, or to a local directory laid out the same way.
+Fetches messages in small batches and writes each one to its destination as a
+compressed object with a metadata sidecar, checkpointing after every batch.
+Append-only, resumable, and safe to interrupt at any moment.
 
 ```bash
 export BUCKET_NAME=my-mail-archive
@@ -112,6 +112,13 @@ a host the Ansible role writes it to `/etc/email-exporter/environment` and the
 systemd unit loads it from there; by hand, export it. A single account can point
 somewhere else with `storage.bucket_name`.
 
+`STORAGE_ROOT` replaces the bucket with a directory: every key above is written
+beneath it instead, so a message has the same name locally as in S3. Writes go
+through a temp file and a rename. The directory must already exist — the
+exporter creates everything below it but never the root itself, so an unmounted
+mountpoint fails the run instead of filling the local disk. `storage.root` sets
+it per account.
+
 `mailboxes` is an allow-list intersected with what the server reports, so the
 same default works for Gmail and non-Gmail accounts.
 
@@ -123,8 +130,8 @@ boundaries, so it always stops on a written checkpoint.
 ## Checkpoints
 
 `<address>/<mailbox>/state.json` holds `last_processed_uid` and `uidvalidity`,
-pushed after every batch. A run resumes from there. There is no local state: the
-bucket is the record.
+pushed after every batch. A run resumes from there. There is no other state: the
+destination is the record.
 
 Two things to know before editing one by hand:
 
@@ -184,8 +191,8 @@ module.
 [`ansible/`](ansible/) is a collection holding one role,
 `maneyko.email_exporter.deploy`, which puts all of the above on a host: `uv`, a
 system user, a clone at `/opt/email-exporter`, the account tomls, AWS
-credentials, and the systemd timer. A caller supplies only its settings and its
-secrets:
+credentials or a local root, and the systemd timer. A caller supplies only its
+settings and its secrets:
 
 ```yaml
 - hosts: all

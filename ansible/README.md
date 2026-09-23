@@ -2,7 +2,8 @@
 
 The role that deploys this repo onto a host: uv, a system user, a clone at
 `/opt/email-exporter`, per-account secrets in `/etc/email-exporter/secrets/`,
-AWS credentials for the service user, and the systemd timer that runs the export.
+AWS credentials for the service user or a local root, and the systemd timer that
+runs the export.
 
 `requirements.yml`:
 
@@ -56,6 +57,21 @@ keep in sync.
 through a file rather than an `Environment=` line because the units are copied
 out of the checkout verbatim, so there is nothing to interpolate a value into.
 
+`config.root` is the alternative to `config.bucket_name`, and the role accepts
+exactly one of them. It reaches the app as `STORAGE_ROOT` through the same
+file. With it, the role installs no AWS credentials and writes a drop-in,
+`email-exporter.service.d/storage.conf`, holding `RequiresMountsFor=<root>`:
+the service pulls in whatever mount holds the root and fails if that mount
+does. The root itself must already exist; the app refuses to create it.
+
+`config.groups` adds the service user to existing groups, for a root whose
+filesystem grants write access by group — a CIFS mount, where ownership is fixed
+by mount options, is the case it exists for.
+
+`config.timer: false` installs the timer but leaves it disabled and stopped, for
+a host where something else runs `systemctl start email-exporter.service`. The
+default is `true`.
+
 `email_exporter_repo` in `roles/deploy/vars/main.yaml` is an HTTPS URL, so the
 clone is anonymous and the play needs nothing on the SSH side. Override it with
 an SSH URL to deploy from a private fork, and that brings back agent forwarding
@@ -67,9 +83,10 @@ an SSH URL to deploy from a private fork, and that brings back agent forwarding
 |---|---|---|
 | `/opt/email-exporter` | `config.owner`, `2750` | the checkout; read-only to the service |
 | `/etc/email-exporter/secrets/` | `config.owner:email-exporter`, `0750` | one `<address>.toml` per account, `0640` |
-| `/etc/email-exporter/environment` | `config.owner`, `0644` | `BUCKET_NAME`, loaded by the unit |
-| `~email-exporter/.aws/` | the service user, `0700` | region and the access key pair |
+| `/etc/email-exporter/environment` | `config.owner`, `0644` | `BUCKET_NAME` or `STORAGE_ROOT`, loaded by the unit |
+| `~email-exporter/.aws/` | the service user, `0700` | region and the access key pair; bucket only |
 | `/etc/systemd/system/` | root | `email-exporter.service` and its `.timer` |
+| `/etc/systemd/system/email-exporter.service.d/` | root | `storage.conf`, `RequiresMountsFor=`; local root only |
 
 Defaults live in `roles/deploy/vars/main.yaml` rather than `defaults/`, because
 they are facts about this app rather than knobs for a caller: the paths, the
@@ -85,11 +102,6 @@ each one is capped by `max_download_mib`.
 
 ## Gaps
 
-- **No `enabled` option.** The role hardcodes started and enabled, so "deploy it
-  but leave it off" is not expressible, and a host being built has to be quieted
-  by hand. A `config.enabled` defaulting to false would be the fix.
-- **The checkout is chowned without scoping git's `safe.directory`.** See the
-  sharp edge of the same name in `../AGENTS.md`.
 - **The bucket's region is assumed, not passed.** `config.bucket_name` is a
   caller setting, but `email_exporter_aws_region` is still a role var, so a
   bucket outside `us-east-2` has to override it as a role param. A

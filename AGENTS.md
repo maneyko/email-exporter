@@ -14,9 +14,10 @@ way and which sharp edges have already drawn blood.
 - Comments explain *why*, never *what*. If a comment restates the line below it,
   delete the comment and fix the name.
 - No config option gets added until a second real caller needs it. Constants in
-  a toml beat flags, flags beat environment variables. `BUCKET_NAME` is the one
-  environment variable, because the bucket is the same for every account and a
-  per-account toml has nowhere to state a global.
+  a toml beat flags, flags beat environment variables. `BUCKET_NAME` and
+  `STORAGE_ROOT` are the only environment variables, because the destination is
+  the same for every account and a per-account toml has nowhere to state a
+  global.
 
 ## Scope
 
@@ -30,8 +31,9 @@ or `bucket-archive/` belongs there.
 
 ## Invariants — do not break these
 
-1. **The exporter can never delete.** Its IAM key has no `DeleteObject`. Keep it
-   that way; it is the reason a compromised client cannot destroy the archive.
+1. **The exporter can never delete.** Its IAM key has no `DeleteObject`, and
+   `FileStore` has no delete either. Keep it that way; it is the reason a
+   compromised client cannot destroy the archive.
 2. **Metadata failure must never block ingestion.** The raw message is the
    record. If headers cannot be parsed, store the message with thin metadata and
    warn — a single malformed message must not wedge a mailbox forever.
@@ -80,9 +82,15 @@ find /opt /home -xdev -inum $(stat -c %i <the file uv named>)
 run** — `detected dubious ownership`. The first apply works because root created
 the clone; every apply after it fails, unless something else on the host has
 already set `safe.directory` globally, which is a dependency this role does not
-declare and should not rely on. The fix is to scope the exception to the clone
-task with `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0` in its
-own `environment:`, leaving no state on the host. Not done here yet.
+declare and should not rely on. That is why the clone task sets
+`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0` in its own
+`environment:`: the exception is scoped to that task and leaves no state on the
+host.
+
+**A local `STORAGE_ROOT` must already exist.** `FileStore` creates directories
+below the root but never the root itself, because an unmounted mountpoint is an
+empty directory and creating the root inside it would quietly export to the
+local disk.
 
 **Gmail:** `X-GM-*` fetch attributes are gated on the `X-GM-EXT-1` capability,
 not on the address — Workspace domains serve them too, and a server without them
@@ -97,7 +105,8 @@ There are no unit tests, and adding a framework is not the answer. What has
 worked:
 
 - **Create a throwaway bucket** and exercise the real code path against it, then
-  delete the bucket.
+  delete the bucket. For the local destination, a throwaway directory as
+  `STORAGE_ROOT` does the same.
 - **Export one account at a time** (`./main.py me@example.com`) and cap it with
   `max_download_mib` so a change can be rehearsed on a small mailbox before it
   runs against a 125k-message one.
@@ -136,7 +145,8 @@ lib/__main__.py        one process, all accounts, exit codes, `python -m lib`
 lib/export.py          the per-mailbox loop and checkpointing
 lib/mail_client.py     IMAP plumbing, reconnects, UID paging, capability detection
 lib/email.py           one message: parsing, metadata, compression
-lib/state.py           per-mailbox checkpoint stored in S3
+lib/state.py           per-mailbox checkpoint stored beside the messages
+lib/stores.py          the two destinations: S3, or a local directory
 lib/config.py          per-account toml merged over the defaults
 lib/defaults.toml      those defaults, laid out like an account toml
 etc/systemd/           the units the role installs into /etc/systemd/system

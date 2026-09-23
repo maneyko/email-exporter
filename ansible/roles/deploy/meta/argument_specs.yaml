@@ -7,13 +7,33 @@ argument_specs:
         type: dict
         required: true
         description: Non-secret settings, from the caller's inventory.
+        mutually_exclusive: [[bucket_name, root]]
+        required_one_of: [[bucket_name, root]]
         options:
           bucket_name:
             type: str
-            required: true
             description: >-
               Bucket the exporter writes messages and sync state to, handed to
               main.py as BUCKET_NAME. The app has no default for it.
+          root:
+            type: str
+            description: >-
+              Existing directory to write to instead of a bucket, handed to
+              main.py as STORAGE_ROOT. The service requires the mount that
+              holds it, and needs no AWS credentials.
+          groups:
+            type: list
+            elements: str
+            description: >-
+              Extra groups for the service user, such as the group a mounted
+              root grants write access to.
+          timer:
+            type: bool
+            default: true
+            description: >-
+              Whether the timer is enabled and started. False where something
+              else starts email-exporter.service. Applied by the role itself,
+              like version.
           owner:
             type: str
             required: true
@@ -42,8 +62,9 @@ argument_specs:
               filename is taken from the imap.username inside it.
           aws:
             type: dict
-            required: true
-            description: AWS credentials for the bucket the exporter writes to.
+            description: >-
+              AWS credentials for the bucket the exporter writes to. Required
+              with config.bucket_name.
             options:
               credentials:
                 type: dict

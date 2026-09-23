@@ -7,6 +7,8 @@
     shell: /usr/sbin/nologin
     system: true
     comment: User for the IMAP to S3 mail archiver
+    groups: "{{ config.groups | default(omit) }}"
+    append: true
 
 - name: Install uv
   include_role:
@@ -15,6 +17,10 @@
     uv_users: ["{{ email_exporter_user }}"]
 
 - name: Clone email-exporter repo
+  environment:
+    GIT_CONFIG_COUNT: "1"
+    GIT_CONFIG_KEY_0: safe.directory
+    GIT_CONFIG_VALUE_0: "{{ email_exporter_root }}"
   git:
     accept_hostkey: true
     repo: "{{ email_exporter_repo }}"
@@ -50,39 +56,46 @@
   copy:
     dest: "{{ email_exporter_conf }}/environment"
     content: |
+      {% if config.root is defined %}
+      STORAGE_ROOT={{ config.root }}
+      {% else %}
       BUCKET_NAME={{ config.bucket_name }}
+      {% endif %}
     owner: "{{ config.owner }}"
     mode: '0644'
 
-- name: Create AWS config directory
-  file:
-    state: directory
-    path: "{{ app_user.home }}/.aws"
-    owner: "{{ email_exporter_user }}"
-    group: "{{ email_exporter_user }}"
-    mode: '0700'
+- name: Install AWS credentials
+  when: config.root is not defined
+  block:
+    - name: Create AWS config directory
+      file:
+        state: directory
+        path: "{{ app_user.home }}/.aws"
+        owner: "{{ email_exporter_user }}"
+        group: "{{ email_exporter_user }}"
+        mode: '0700'
 
-- name: Write AWS region
-  copy:
-    dest: "{{ app_user.home }}/.aws/config"
-    content: |
-      [default]
-      region = {{ email_exporter_aws_region }}
-    owner: "{{ email_exporter_user }}"
-    group: "{{ email_exporter_user }}"
-    mode: '0644'
+    - name: Write AWS region
+      copy:
+        dest: "{{ app_user.home }}/.aws/config"
+        content: |
+          [default]
+          region = {{ email_exporter_aws_region }}
+        owner: "{{ email_exporter_user }}"
+        group: "{{ email_exporter_user }}"
+        mode: '0644'
 
-- name: Write AWS credentials
-  no_log: true
-  copy:
-    dest: "{{ app_user.home }}/.aws/credentials"
-    content: |
-      [default]
-      aws_access_key_id = {{ secrets.aws.credentials.access_key }}
-      aws_secret_access_key = {{ secrets.aws.credentials.secret_key }}
-    owner: "{{ email_exporter_user }}"
-    group: "{{ email_exporter_user }}"
-    mode: '0600'
+    - name: Write AWS credentials
+      no_log: true
+      copy:
+        dest: "{{ app_user.home }}/.aws/credentials"
+        content: |
+          [default]
+          aws_access_key_id = {{ secrets.aws.credentials.access_key }}
+          aws_secret_access_key = {{ secrets.aws.credentials.secret_key }}
+        owner: "{{ email_exporter_user }}"
+        group: "{{ email_exporter_user }}"
+        mode: '0600'
 
 - name: Install systemd units
   loop: [email-exporter.service, email-exporter.timer]
@@ -92,9 +105,26 @@
     dest: /etc/systemd/system/{{ item }}
     mode: '0644'
 
-- name: Enable email-exporter timer
+- name: Make the service require the mount holding its root
+  when: config.root is defined
+  block:
+    - name: Create email-exporter.service drop-in directory
+      file:
+        state: directory
+        path: /etc/systemd/system/email-exporter.service.d
+        mode: '0755'
+
+    - name: Write email-exporter.service storage drop-in
+      copy:
+        dest: /etc/systemd/system/email-exporter.service.d/storage.conf
+        content: |
+          [Unit]
+          RequiresMountsFor={{ config.root }}
+        mode: '0644'
+
+- name: Start or stop email-exporter timer
   systemd_service:
     name: email-exporter.timer
     daemon_reload: true
-    enabled: true
-    state: started
+    enabled: "{{ config.timer | default(true) }}"
+    state: "{{ 'started' if config.timer | default(true) else 'stopped' }}"
