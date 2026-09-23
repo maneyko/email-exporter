@@ -13,3 +13,5 @@ max_download_mib = 1024
 [storage]
 timezone = "America/Chicago"
 # bucket_name comes from $BUCKET_NAME; set it here to send one account elsewhere.
+# root comes from $STORAGE_ROOT: an existing directory that, when set, replaces
+# the bucket, with the same keys beneath it.

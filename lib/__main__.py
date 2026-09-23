@@ -1,4 +1,4 @@
-"""Export every configured mailbox to S3, then exit.
+"""Export every configured mailbox to S3, or to $STORAGE_ROOT, then exit.
 
 With no arguments every account in /etc/email-exporter/secrets is exported;
 pass addresses to limit it. Each account stops once it has pulled its

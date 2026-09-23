@@ -12,6 +12,7 @@ with open(lib_root / "defaults.toml", "rb") as f:
     DEFAULTS = tomllib.load(f)
 
 DEFAULTS["storage"]["bucket_name"] = os.getenv("BUCKET_NAME")
+DEFAULTS["storage"]["root"] = os.getenv("STORAGE_ROOT")
 
 # The checkout's secrets/ is gitignored, so real credentials can sit in a
 # working tree.
@@ -62,5 +63,7 @@ class Config:
 
     @cached_property
     def store(self):
-        from lib.stores import S3Store as Store
-        return Store(self.storage["bucket_name"])
+        from lib.stores import FileStore, S3Store
+        if root := self.storage["root"]:
+            return FileStore(root)
+        return S3Store(self.storage["bucket_name"])
