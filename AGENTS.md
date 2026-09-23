@@ -99,6 +99,13 @@ rejects the whole `FETCH` as `BAD`. Gmail UID order does not follow date order
 downloads are throttled to roughly 2.5 GB/day per account, which is why the
 timer is daily and `max_download_mib` caps a single run.
 
+**A prefix the exporter stopped writing is not necessarily redundant.** When
+Gmail accounts switched to All Mail only, their `INBOX/` prefixes looked like
+duplicates and were deleted by hand. One of them also held imported mail that
+existed in neither the server nor All Mail, and the bucket is unversioned, so
+that mail left the archive for good. Before removing a prefix, dedupe it by
+`Message-ID` against everything that remains, and keep whatever does not match.
+
 ## Testing
 
 There are no unit tests, and adding a framework is not the answer. What has
