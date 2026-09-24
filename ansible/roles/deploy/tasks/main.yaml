@@ -8,7 +8,7 @@
     system: true
     comment: User for the IMAP to S3 mail archiver
     groups: "{{ config.groups | default(omit) }}"
-    append: true
+    append: "{{ config.groups is defined }}"
 
 - name: Install uv
   include_role:
